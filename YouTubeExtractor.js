@@ -36,8 +36,9 @@ async function getBestAudioUrl(videoUrl) {
     videoUrl,
     "--dump-json",
     "--no-warnings",
-    "--format", "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio",
-    "--youtube-skip-dash-manifest",
+    "--format", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
+    "--extractor-args", "youtube:player_client=ios,web",
+    "--no-check-certificates",
   ];
   const cookiesFile = getCookiesFile();
   if (cookiesFile) args.push("--cookies", cookiesFile);
