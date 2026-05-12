@@ -1,14 +1,30 @@
 const { BaseExtractor, Track, QueryType, Util } = require("discord-player");
 const playdl = require("play-dl");
-const youtubedl = require("youtube-dl-exec");
+const { execFile } = require("child_process");
+const { promisify } = require("util");
+
+const execFileAsync = promisify(execFile);
+
+// Tìm yt-dlp binary — ưu tiên system path, fallback về npm package
+function getYtDlpPath() {
+  const npmBin = require("path").join(
+    __dirname,
+    "node_modules/youtube-dl-exec/bin/yt-dlp"
+  );
+  // Trên Linux (Render) thử /usr/local/bin/yt-dlp trước
+  return process.platform === "win32" ? npmBin + ".exe" : "/usr/local/bin/yt-dlp";
+}
 
 async function getBestAudioUrl(videoUrl) {
-  const info = await youtubedl(videoUrl, {
-    dumpSingleJson: true,
-    noWarnings: true,
-    youtubeSkipDashManifest: true,
-    format: "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio",
-  });
+  const bin = getYtDlpPath();
+  const { stdout } = await execFileAsync(bin, [
+    videoUrl,
+    "--dump-json",
+    "--no-warnings",
+    "--format", "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio",
+    "--youtube-skip-dash-manifest",
+  ]);
+  const info = JSON.parse(stdout);
   const audioFormats = info.formats.filter(
     (f) => f.acodec !== "none" && f.vcodec === "none" && f.url,
   );
@@ -32,9 +48,8 @@ class YouTubeExtractor extends BaseExtractor {
   }
 
   _normalizeURL(query) {
-    const match = query.match(/youtu\.be\/([a-zA-Z0-9_-]+)/);
-    if (match) return `https://www.youtube.com/watch?v=${match[1]}`;
-    // Xóa tham số ?si= không cần thiết
+    const shortMatch = query.match(/youtu\.be\/([a-zA-Z0-9_-]+)/);
+    if (shortMatch) return `https://www.youtube.com/watch?v=${shortMatch[1]}`;
     try {
       const u = new URL(query);
       const v = u.searchParams.get("v");
@@ -59,19 +74,20 @@ class YouTubeExtractor extends BaseExtractor {
   async handle(query, context) {
     query = this._normalizeURL(query);
 
-    // Direct YouTube URL — build track ngay, không cần fetch info
+    // Direct YouTube URL — build track ngay không cần fetch info
     if (this._isYouTubeURL(query) || playdl.yt_validate(query) === "video") {
-      const track = this._buildTrack({
-        title: query, // tạm dùng URL, sẽ được cập nhật khi phát
-        url: query,
-        author: "YouTube",
-        durationMs: 0,
-        thumbnail: "",
-      }, context);
-      return this.createResponse(null, [track]);
+      return this.createResponse(null, [
+        this._buildTrack({
+          title: query,
+          url: query,
+          author: "YouTube",
+          durationMs: 0,
+          thumbnail: "",
+        }, context),
+      ]);
     }
 
-    // Tìm kiếm theo tên — dùng play-dl search
+    // Tìm kiếm theo tên bài
     const results = await playdl
       .search(query, { source: { youtube: "video" }, limit: 5 })
       .catch(() => []);
@@ -116,9 +132,14 @@ class YouTubeExtractor extends BaseExtractor {
     const url = info.url || info.track?.url;
     if (!url) throw new Error("Không tìm thấy URL track");
     const cleanUrl = this._normalizeURL(url);
-    const audioUrl = await getBestAudioUrl(cleanUrl);
-    if (!audioUrl) throw new Error("Không lấy được stream từ YouTube");
-    return audioUrl;
+    try {
+      const audioUrl = await getBestAudioUrl(cleanUrl);
+      if (!audioUrl) throw new Error("yt-dlp không trả về stream URL");
+      return audioUrl;
+    } catch (err) {
+      console.error("[YouTubeExtractor] stream() error:", err.message);
+      throw err;
+    }
   }
 
   async getRelatedTracks() {
