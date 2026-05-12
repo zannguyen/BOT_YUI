@@ -41,6 +41,10 @@ player.events.on("error", (queue, error) => {
   queue.metadata.channel.send(`❌ Lỗi: ${error.message}`);
 });
 
+player.events.on("playerError", (queue, error) => {
+  queue.metadata.channel.send(`❌ Lỗi phát nhạc: ${error.message}`);
+});
+
 client.on("clientReady", async () => {
   await player.extractors.loadMulti(DefaultExtractors);
   console.log(`✅ Bot đã online: ${client.user.tag}`);
