@@ -2,7 +2,6 @@ require("dotenv").config();
 const { Client, GatewayIntentBits } = require("discord.js");
 const { Player } = require("discord-player");
 const { DefaultExtractors } = require("@discord-player/extractor");
-const { YouTubeExtractor } = require("./YouTubeExtractor");
 const http = require("http");
 
 // Giữ bot sống trên Render
@@ -43,7 +42,6 @@ player.events.on("error", (queue, error) => {
 });
 
 client.on("clientReady", async () => {
-  await player.extractors.register(YouTubeExtractor, {});
   await player.extractors.loadMulti(DefaultExtractors);
   console.log(`✅ Bot đã online: ${client.user.tag}`);
 });
