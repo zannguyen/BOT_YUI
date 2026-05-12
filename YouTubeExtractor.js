@@ -2,17 +2,13 @@ const { BaseExtractor, Track, QueryType, Util } = require("discord-player");
 const playdl = require("play-dl");
 const youtubedl = require("youtube-dl-exec");
 
-// Dùng yt-dlp để lấy info + stream URL (hoạt động trên mọi server)
-async function getVideoInfo(videoUrl) {
-  return youtubedl(videoUrl, {
+async function getBestAudioUrl(videoUrl) {
+  const info = await youtubedl(videoUrl, {
     dumpSingleJson: true,
     noWarnings: true,
     youtubeSkipDashManifest: true,
     format: "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio",
   });
-}
-
-async function getBestAudioUrl(info) {
   const audioFormats = info.formats.filter(
     (f) => f.acodec !== "none" && f.vcodec === "none" && f.url,
   );
@@ -38,6 +34,12 @@ class YouTubeExtractor extends BaseExtractor {
   _normalizeURL(query) {
     const match = query.match(/youtu\.be\/([a-zA-Z0-9_-]+)/);
     if (match) return `https://www.youtube.com/watch?v=${match[1]}`;
+    // Xóa tham số ?si= không cần thiết
+    try {
+      const u = new URL(query);
+      const v = u.searchParams.get("v");
+      if (v) return `https://www.youtube.com/watch?v=${v}`;
+    } catch {}
     return query;
   }
 
@@ -56,25 +58,20 @@ class YouTubeExtractor extends BaseExtractor {
 
   async handle(query, context) {
     query = this._normalizeURL(query);
-    const isURL = this._isYouTubeURL(query) || playdl.yt_validate(query) === "video";
 
-    if (isURL) {
-      // Dùng yt-dlp để lấy info — hoạt động trên mọi server
-      const info = await getVideoInfo(query).catch(() => null);
-      if (!info) return this.emptyResponse();
-      return this.createResponse(null, [
-        this._buildTrack({
-          title: info.title,
-          url: `https://www.youtube.com/watch?v=${info.id}`,
-          author: info.uploader || info.channel || "Unknown",
-          durationMs: (info.duration || 0) * 1000,
-          thumbnail: info.thumbnail || "",
-          ytInfo: info,
-        }, context),
-      ]);
+    // Direct YouTube URL — build track ngay, không cần fetch info
+    if (this._isYouTubeURL(query) || playdl.yt_validate(query) === "video") {
+      const track = this._buildTrack({
+        title: query, // tạm dùng URL, sẽ được cập nhật khi phát
+        url: query,
+        author: "YouTube",
+        durationMs: 0,
+        thumbnail: "",
+      }, context);
+      return this.createResponse(null, [track]);
     }
 
-    // Tìm kiếm theo tên bài
+    // Tìm kiếm theo tên — dùng play-dl search
     const results = await playdl
       .search(query, { source: { youtube: "video" }, limit: 5 })
       .catch(() => []);
@@ -94,7 +91,7 @@ class YouTubeExtractor extends BaseExtractor {
     );
   }
 
-  _buildTrack({ title, url, author, durationMs, thumbnail, ytInfo }, context) {
+  _buildTrack({ title, url, author, durationMs, thumbnail }, context) {
     const track = new Track(this.context.player, {
       title: title || "Unknown",
       url,
@@ -105,10 +102,10 @@ class YouTubeExtractor extends BaseExtractor {
       author,
       requestedBy: context.requestedBy,
       source: "youtube",
-      engine: ytInfo || url,
+      engine: url,
       queryType: QueryType.YOUTUBE_VIDEO,
-      metadata: { url, ytInfo },
-      requestMetadata: async () => ({ url, ytInfo }),
+      metadata: { url },
+      requestMetadata: async () => ({ url }),
       cleanTitle: title || "Unknown",
     });
     track.extractor = this;
@@ -118,13 +115,8 @@ class YouTubeExtractor extends BaseExtractor {
   async stream(info) {
     const url = info.url || info.track?.url;
     if (!url) throw new Error("Không tìm thấy URL track");
-
-    // Nếu đã có ytInfo từ handle(), dùng luôn không cần gọi lại yt-dlp
-    const ytInfo = info.metadata?.ytInfo || info.track?.metadata?.ytInfo;
-    const videoInfo = ytInfo || await getVideoInfo(url).catch(() => null);
-    if (!videoInfo) throw new Error("Không lấy được thông tin từ YouTube");
-
-    const audioUrl = await getBestAudioUrl(videoInfo);
+    const cleanUrl = this._normalizeURL(url);
+    const audioUrl = await getBestAudioUrl(cleanUrl);
     if (!audioUrl) throw new Error("Không lấy được stream từ YouTube");
     return audioUrl;
   }
