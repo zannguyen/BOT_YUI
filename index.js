@@ -46,7 +46,12 @@ player.events.on("playerError", (queue, error) => {
 });
 
 client.on("clientReady", async () => {
-  await player.extractors.loadMulti(DefaultExtractors);
+  await player.extractors.loadMulti(DefaultExtractors, {
+    SoundCloudExtractor: {
+      clientId: process.env.SC_CLIENT_ID,
+      oauthToken: process.env.SC_OAUTH_TOKEN,
+    },
+  });
   console.log(`✅ Bot đã online: ${client.user.tag}`);
 });
 
