@@ -15,15 +15,34 @@ function getYtDlpPath() {
   return process.platform === "win32" ? npmBin + ".exe" : "/usr/local/bin/yt-dlp";
 }
 
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
+// Ghi cookies từ env ra file tạm để yt-dlp dùng
+function getCookiesFile() {
+  const cookies = process.env.YOUTUBE_COOKIES;
+  if (!cookies) return null;
+  const tmpPath = path.join(os.tmpdir(), "yt_cookies.txt");
+  if (!fs.existsSync(tmpPath)) {
+    fs.writeFileSync(tmpPath, cookies, "utf8");
+  }
+  return tmpPath;
+}
+
 async function getBestAudioUrl(videoUrl) {
   const bin = getYtDlpPath();
-  const { stdout } = await execFileAsync(bin, [
+  const args = [
     videoUrl,
     "--dump-json",
     "--no-warnings",
     "--format", "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio",
     "--youtube-skip-dash-manifest",
-  ]);
+  ];
+  const cookiesFile = getCookiesFile();
+  if (cookiesFile) args.push("--cookies", cookiesFile);
+
+  const { stdout } = await execFileAsync(bin, args);
   const info = JSON.parse(stdout);
   const audioFormats = info.formats.filter(
     (f) => f.acodec !== "none" && f.vcodec === "none" && f.url,
