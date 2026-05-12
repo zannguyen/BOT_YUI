@@ -27,8 +27,13 @@ class YouTubeExtractor extends BaseExtractor {
     this.protocols = [];
   }
 
+  _isYouTubeURL(query) {
+    return /youtu\.be\/|youtube\.com\/(watch|shorts|embed)/.test(query);
+  }
+
   async validate(query, type) {
     if (typeof query !== "string") return false;
+    if (this._isYouTubeURL(query)) return true;
     return [
       QueryType.YOUTUBE,
       QueryType.YOUTUBE_PLAYLIST,
@@ -40,6 +45,12 @@ class YouTubeExtractor extends BaseExtractor {
   }
 
   async handle(query, context) {
+    // Chuẩn hóa youtu.be short link → youtube.com
+    if (/youtu\.be\/([a-zA-Z0-9_-]+)/.test(query)) {
+      const videoId = query.match(/youtu\.be\/([a-zA-Z0-9_-]+)/)[1];
+      query = `https://www.youtube.com/watch?v=${videoId}`;
+    }
+
     const ytValidate = playdl.yt_validate(query);
 
     if (ytValidate === "video") {
